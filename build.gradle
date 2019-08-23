@@ -58,6 +58,7 @@ allprojects {
   apply plugin: 'idea'
   apply plugin: 'org.owasp.dependencycheck'
   apply plugin: 'com.github.ben-manes.versions'
+  apply plugin: 'project-report'
 
   dependencyUpdates {
     revision="release"
@@ -1155,6 +1156,15 @@ project(':streams') {
     testCompile libs.powermockEasymock
     testCompile libs.bcpkix
     testCompile libs.hamcrest
+
+    testCompile libs.jerseyContainerServlet
+    testCompile libs.jerseyHk2
+    testCompile libs.jaxbApi // Jersey dependency that was available in the JDK before Java 9
+    testCompile libs.activation // Jersey dependency that was available in the JDK before Java 9
+    testCompile libs.jettyServer
+    testCompile libs.jettyServlet
+    testCompile libs.jettyServlets
+    testCompile libs.jettyClient
 
     testRuntimeOnly project(':streams:test-utils')
     testRuntime libs.slf4jlog4j
