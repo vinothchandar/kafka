@@ -754,7 +754,9 @@ public class KafkaStreams implements AutoCloseable {
                 delegatingStateRestoreListener,
                 i + 1);
             threadState.put(threads[i].getId(), threads[i].state());
-            storeProviders.add(new StreamThreadStateStoreProvider(threads[i]));
+            storeProviders.add(new StreamThreadStateStoreProvider(threads[i],
+                config.getBoolean(StreamsConfig.ALLOW_STALE_STATE_STORE_READS_CONFIG) &&
+                    config.getInt(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG) > 0));
         }
 
         final StreamStateListener streamStateListener = new StreamStateListener(threadState, globalThreadState);
@@ -1010,7 +1012,7 @@ public class KafkaStreams implements AutoCloseable {
      */
     public Collection<StreamsMetadata> allMetadata() {
         validateIsRunning();
-        return streamsMetadataState.getAllMetadata();
+        return streamsMetadataState.getAllActiveMetadata();
     }
 
     /**
@@ -1063,7 +1065,7 @@ public class KafkaStreams implements AutoCloseable {
      * @param key           the key to find metadata for
      * @param keySerializer serializer for the key
      * @param <K>           key type
-     * @return {@link StreamsMetadata} for the {@code KafkaStreams} instance with the provide {@code storeName} and
+     * @return {@link StreamsMetadata} for the {@code KafkaStreams} instance with the provided {@code storeName} and
      * {@code key} of this application or {@link StreamsMetadata#NOT_AVAILABLE} if Kafka Streams is (re-)initializing
      */
     public <K> StreamsMetadata metadataForKey(final String storeName,
@@ -1094,7 +1096,7 @@ public class KafkaStreams implements AutoCloseable {
      * @param key         the key to find metadata for
      * @param partitioner the partitioner to be use to locate the host for the key
      * @param <K>         key type
-     * @return {@link StreamsMetadata} for the {@code KafkaStreams} instance with the provide {@code storeName} and
+     * @return {@link StreamsMetadata} for the {@code KafkaStreams} instance with the provided {@code storeName} and
      * {@code key} of this application or {@link StreamsMetadata#NOT_AVAILABLE} if Kafka Streams is (re-)initializing
      */
     public <K> StreamsMetadata metadataForKey(final String storeName,
@@ -1102,6 +1104,13 @@ public class KafkaStreams implements AutoCloseable {
                                               final StreamPartitioner<? super K, ?> partitioner) {
         validateIsRunning();
         return streamsMetadataState.getMetadataWithKey(storeName, key, partitioner);
+    }
+
+    public <K> List<StreamsMetadata> allMetadataWithKey(final String storeName,
+                                          final K key,
+                                          final Serializer<K> keySerializer) {
+        validateIsRunning();
+        return streamsMetadataState.getAllMetadataWithKey(storeName, key, keySerializer);
     }
 
     /**

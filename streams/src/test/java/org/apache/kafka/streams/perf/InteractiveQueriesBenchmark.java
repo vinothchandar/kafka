@@ -20,6 +20,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.net.ConnectException;
 import java.nio.file.Files;
@@ -106,7 +107,7 @@ public class InteractiveQueriesBenchmark {
     static class Log {
 
         private static final SimpleDateFormat TIMESTAMP_FMT = new SimpleDateFormat("yyyyMMddHHmmss.SSS");
-        private static final boolean DEBUG_ENABLED = false;
+        private static final boolean DEBUG_ENABLED = true;
 
         static void message(String msg) {
             System.out.format("[%s] %s :  %s\n" , Thread.currentThread().getName(),
@@ -232,64 +233,73 @@ public class InteractiveQueriesBenchmark {
 
         @Override
         public void handle(final String target, final Request baseRequest, final HttpServletRequest request,
-            final HttpServletResponse response) {
-            try {
-                if (request.getQueryString().contains("/health")) {
-                    Log.message("Health check : " + request.getRequestURI());
-                    response.setStatus(HttpServletResponse.SC_OK);
-                    response.getWriter().println("UP!");
-                } else {
-                    if (Log.isDebugEnabled()) {
-                        Log.message("Handling query string : " + request.getQueryString());
-                    }
-                    String key = request.getQueryString().split("=")[1];
-                    final StreamsMetadata metadata = streams
-                        .metadataForKey(workload.stateStoreName(), key, new StringSerializer());
-                    if (metadata == null) {
-                        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-                        baseRequest.setHandled(true);
-                    } else {
-                        String metadataHostPort = metadata.host() + ":" + metadata.port();
-                        response.setContentType("text/json; charset=utf-8");
-                        if (hostPort.equals(metadataHostPort)) {
-                            if (Log.isDebugEnabled()) {
-                                Log.message("Querying local store for key : " + key);
-                            }
-                            final ReadOnlyWindowStore<String, byte[]> windowStore = streams
-                                .store(workload.stateStoreName(),
-                                    QueryableStoreTypes.windowStore());
-                            String value = fetchValueAsString(windowStore, key);
-                            response.setStatus(HttpServletResponse.SC_OK);
-                            response.getWriter().println("{value: '" + value + "'}'");
+            final HttpServletResponse response) throws IOException {
+
+            if (request.getQueryString().contains("/health")) {
+                Log.message("Health check : " + request.getRequestURI());
+                response.setStatus(HttpServletResponse.SC_OK);
+                response.getWriter().println("UP!");
+            } else {
+                if (Log.isDebugEnabled()) {
+                    Log.message("Handling query string : " + request.getQueryString());
+                }
+                String key = request.getQueryString().split("=")[1];
+
+                List<StreamsMetadata> allMetadata = streams
+                    .allMetadataWithKey(workload.stateStoreName(), key, new StringSerializer());
+                Log.message("Replicas :" + allMetadata.toString());
+
+                for (final StreamsMetadata metadata : allMetadata) {
+                    try {
+                        if (metadata == null) {
+                            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                            baseRequest.setHandled(true);
                         } else {
-                            // forward to the host, who owns the key
-                            if (Log.isDebugEnabled()) {
-                                Log.message(
-                                    String.format("Forwarding to remote host %s for key %s", metadataHostPort, key));
-                            }
-                            Response fwdResponse = client
-                                .target(String.format("http://%s/?%s", metadataHostPort, "key=" + key))
-                                .request(MediaType.APPLICATION_JSON_TYPE).get();
-                            response.setStatus(fwdResponse.getStatus());
-                            if (fwdResponse.getStatus() == HttpServletResponse.SC_OK) {
-                                response.getWriter()
-                                    .println("{value: '" + fwdResponse.readEntity(String.class) + "'}'");
+                            String metadataHostPort = metadata.host() + ":" + metadata.port();
+                            response.setContentType("text/json; charset=utf-8");
+                            if (hostPort.equals(metadataHostPort)) {
+                                if (Log.isDebugEnabled()) {
+                                    Log.message("Querying local store for key : " + key);
+                                }
+                                final ReadOnlyWindowStore<String, byte[]> windowStore = streams
+                                    .store(workload.stateStoreName(),
+                                        QueryableStoreTypes.windowStore());
+                                String value = fetchValueAsString(windowStore, key);
+                                response.setStatus(HttpServletResponse.SC_OK);
+                                response.getWriter().println("{value: '" + value + "'}'");
+                            } else {
+                                // forward to the host, who owns the key
+                                if (Log.isDebugEnabled()) {
+                                    Log.message(
+                                        String
+                                            .format("Forwarding to remote host %s for key %s", metadataHostPort,
+                                                key));
+                                }
+                                Response fwdResponse = client
+                                    .target(String.format("http://%s/?%s", metadataHostPort, "key=" + key))
+                                    .request(MediaType.APPLICATION_JSON_TYPE).get();
+                                response.setStatus(fwdResponse.getStatus());
+                                if (fwdResponse.getStatus() == HttpServletResponse.SC_OK) {
+                                    response.getWriter()
+                                        .println("{value: '" + fwdResponse.readEntity(String.class) + "'}'");
+                                }
                             }
                         }
+                        baseRequest.setHandled(true);
+                        break;
+                    } catch (Exception e) {
+                        if (e.getCause() instanceof ConnectException) {
+                            // failed routing
+                            response.setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
+                        } else if (e instanceof InvalidStateStoreException) {
+                            // invalid store
+                            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                        } else {
+                            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                        }
+                        baseRequest.setHandled(true);
                     }
                 }
-                baseRequest.setHandled(true);
-            } catch (Exception e) {
-                if (e.getCause() instanceof ConnectException) {
-                    // failed routing
-                    response.setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
-                } else if (e instanceof InvalidStateStoreException) {
-                    // invalid store
-                    response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                } else {
-                    response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-                }
-                baseRequest.setHandled(true);
             }
         }
 
@@ -354,7 +364,7 @@ public class InteractiveQueriesBenchmark {
             commandSpec = parser.accepts("command", "Command to run. values :"
                 + Arrays.asList(Command.values())).withRequiredArg();
             produceRateSpec = parser.accepts("produce-rate", "rate to produce input at")
-                .withRequiredArg().ofType(Integer.class).defaultsTo(1000);
+                .withRequiredArg().ofType(Integer.class).defaultsTo(100);
             minValueBytesSpec = parser.accepts("min-value-bytes", "minimum value size in bytes")
                 .withRequiredArg().ofType(Integer.class).defaultsTo(500);
             maxValueBytesSpec = parser.accepts("max-value-bytes", "maximum value size in bytes")
@@ -362,7 +372,7 @@ public class InteractiveQueriesBenchmark {
             queryRateSpec = parser.accepts("query-rate", "rate to query the state at")
                 .withRequiredArg().ofType(Integer.class).defaultsTo(100);
             parallelismSpec = parser.accepts("parallelism", "output partitions for ")
-                .withRequiredArg().ofType(Integer.class).defaultsTo(10);
+                .withRequiredArg().ofType(Integer.class).defaultsTo(2);
             streamsPropFileSpec = parser.accepts("streams-props", "path to streams property file")
                 .withRequiredArg().ofType(String.class).defaultsTo("");
             bootstrapServersSpec = parser.accepts("bootstrap-servers", "kafka bootstrap servers")
@@ -484,7 +494,7 @@ public class InteractiveQueriesBenchmark {
         String repartitionTopicName = APP_ID + "-" + workload.stateStoreName() + "-repartition";
 
         List<String> toDelete = new ArrayList<>(Arrays.asList(workload.inputTopicName(), changelogTopicName, repartitionTopicName));
-        toDelete.removeAll(topics);
+        toDelete.retainAll(topics);
         if (toDelete.size() > 0) {
             adminClient.deleteTopics(toDelete);
         }
@@ -639,6 +649,9 @@ public class InteractiveQueriesBenchmark {
                 long startMs = System.currentTimeMillis();
 
                 try {
+                    if (Log.isDebugEnabled()) {
+                        Log.message("Starting query to " + serverUri + "/" + workload.groupKey());
+                    }
                     response = client.target(String.format("http://%s/?%s", serverUri, "key=" + workload.groupKey()))
                         .request(MediaType.APPLICATION_JSON_TYPE).get();
                     if (response.getStatus() == HttpServletResponse.SC_OK) {

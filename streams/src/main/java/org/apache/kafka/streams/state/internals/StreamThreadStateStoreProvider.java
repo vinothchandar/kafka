@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.streams.state.internals;
 
+import java.util.HashSet;
+import java.util.Set;
 import org.apache.kafka.streams.errors.InvalidStateStoreException;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.processor.internals.StreamThread;
@@ -35,9 +37,11 @@ import java.util.List;
 public class StreamThreadStateStoreProvider implements StateStoreProvider {
 
     private final StreamThread streamThread;
+    private final boolean allowStaleStateReads;
 
-    public StreamThreadStateStoreProvider(final StreamThread streamThread) {
+    public StreamThreadStateStoreProvider(final StreamThread streamThread, boolean allowStaleStateReads) {
         this.streamThread = streamThread;
+        this.allowStaleStateReads = allowStaleStateReads;
     }
 
     @SuppressWarnings("unchecked")
@@ -46,12 +50,21 @@ public class StreamThreadStateStoreProvider implements StateStoreProvider {
         if (streamThread.state() == StreamThread.State.DEAD) {
             return Collections.emptyList();
         }
-        if (!streamThread.isRunningAndNotRebalancing()) {
+        if (!allowStaleStateReads && !streamThread.isRunningAndNotRebalancing()) {
+            // if we don't allow stale reads, then throw an error if not running. Records could be in-flight (restored/
+            // replicated) and could lead to queries seeing older values for a key
             throw new InvalidStateStoreException("Cannot get state store " + storeName + " because the stream thread is " +
                     streamThread.state() + ", not RUNNING");
         }
         final List<T> stores = new ArrayList<>();
-        for (final Task streamTask : streamThread.tasks().values()) {
+
+        Set<Task> tasks = new HashSet<>(streamThread.tasks().values());
+        if (allowStaleStateReads) {
+            streamThread.standbyTasks().values().stream().forEach(s -> tasks.add(s));
+        }
+
+
+        for (final Task streamTask : tasks) {
             final StateStore store = streamTask.getStore(storeName);
             if (store != null && queryableStoreType.accepts(store)) {
                 if (!store.isOpen()) {
@@ -67,6 +80,8 @@ public class StreamThreadStateStoreProvider implements StateStoreProvider {
                 }
             }
         }
+
+        System.err.println(">>> stores() :" + stores.size());
         return stores;
     }
 
