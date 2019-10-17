@@ -907,7 +907,7 @@ public class StreamsPartitionAssignorTest {
         final Map<HostInfo, Set<TopicPartition>> hostState = Collections.singletonMap(
             new HostInfo("localhost", 9090),
             Utils.mkSet(t3p0, t3p3));
-        taskManager.setPartitionsByHostState(hostState);
+        taskManager.setHostPartitionMappings(hostState, Collections.emptyMap());
         EasyMock.expectLastCall();
 
         final Map<TaskId, Set<TopicPartition>> activeTasks = new HashMap<>();
@@ -927,7 +927,7 @@ public class StreamsPartitionAssignorTest {
 
         configurePartitionAssignor(Collections.emptyMap());
         final List<TaskId> activeTaskList = asList(task0_0, task0_3);
-        final AssignmentInfo info = new AssignmentInfo(activeTaskList, standbyTasks, hostState);
+        final AssignmentInfo info = new AssignmentInfo(activeTaskList, standbyTasks, hostState, Collections.emptyMap());
         final ConsumerPartitionAssignor.Assignment assignment = new ConsumerPartitionAssignor.Assignment(asList(t3p0, t3p3), info.encode());
 
         partitionAssignor.onAssignment(assignment, null);
@@ -1462,6 +1462,7 @@ public class StreamsPartitionAssignorTest {
             equalTo(new AssignmentInfo(
                 Arrays.asList(task0_0, task0_2),
                 Collections.emptyMap(),
+                Collections.emptyMap(),
                 Collections.emptyMap()
             )));
 
@@ -1471,6 +1472,7 @@ public class StreamsPartitionAssignorTest {
             AssignmentInfo.decode(assignment.get(c2).userData()),
             equalTo(new AssignmentInfo(
                 Collections.emptyList(),
+                Collections.emptyMap(),
                 Collections.emptyMap(),
                 Collections.emptyMap()
             )));
@@ -1524,6 +1526,7 @@ public class StreamsPartitionAssignorTest {
             equalTo(new AssignmentInfo(
                 new ArrayList<>(activeTasks),
                 standbyTaskMap,
+                Collections.emptyMap(),
                 Collections.emptyMap()
             )));
 
@@ -1534,6 +1537,7 @@ public class StreamsPartitionAssignorTest {
             equalTo(new AssignmentInfo(
                 Collections.singletonList(task0_2),
                 futureStandbyTaskMap,
+                Collections.emptyMap(),
                 Collections.emptyMap()
             )));
     }
@@ -1572,6 +1576,7 @@ public class StreamsPartitionAssignorTest {
             equalTo(new AssignmentInfo(
                 Arrays.asList(task0_0, task0_2),
                 Collections.emptyMap(),
+                Collections.emptyMap(),
                 Collections.emptyMap()
             )));
 
@@ -1581,6 +1586,7 @@ public class StreamsPartitionAssignorTest {
             AssignmentInfo.decode(assignment.get(c2).userData()),
             equalTo(new AssignmentInfo(
                 Collections.singletonList(task0_1),
+                Collections.emptyMap(),
                 Collections.emptyMap(),
                 Collections.emptyMap()
             )));
@@ -1631,7 +1637,8 @@ public class StreamsPartitionAssignorTest {
     private ConsumerPartitionAssignor.Assignment createAssignment(final Map<HostInfo, Set<TopicPartition>> firstHostState) {
         final AssignmentInfo info = new AssignmentInfo(Collections.emptyList(),
                                                        Collections.emptyMap(),
-                                                       firstHostState);
+                                                       firstHostState,
+                                                       Collections.emptyMap());
 
         return new ConsumerPartitionAssignor.Assignment(
                 Collections.emptyList(), info.encode());

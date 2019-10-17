@@ -101,10 +101,10 @@ public class StreamsMetadata {
 
     @Override
     public String toString() {
-        return "StreamsMetadata{" +
-                "hostInfo=" + hostInfo +
-                ", stateStoreNames=" + stateStoreNames +
-                ", topicPartitions=" + topicPartitions +
-                '}';
+        return "StreamsMetadata {" +
+                "\nhostInfo=" + hostInfo +
+                "\n, stateStoreNames=" + stateStoreNames +
+                "\n, topicPartitions=" + topicPartitions +
+                "\n}";
     }
 }
